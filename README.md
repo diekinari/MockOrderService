@@ -35,64 +35,24 @@
 - Kafka 2.8+
 - Docker и Docker Compose (опционально)
 
-### Установка
-
-1. Клонируйте репозиторий:
-```bash
-git clone <repository-url>
-cd order-service
-```
-
-2. Установите зависимости:
-```bash
-go mod download
-```
-
-3. Настройте переменные окружения:
-```bash
-cp .env.example .env
-# Отредактируйте .env файл под вашу конфигурацию
-```
-
-4. Запустите зависимости (через Docker Compose):
-```bash
-docker-compose up -d
-```
-
-5. Запустите приложение:
-```bash
-go run cmd/app/main.go
-```
-
 ### Переменные окружения
 
 Создайте файл `.env` в корне проекта со следующими переменными:
 
 ```env
-# Database
-DB_HOST=localhost
-DB_PORT=5432
-DB_USER=app_user
-DB_PASSWORD=app_password
-DB_NAME=app_db
-DB_SSL_MODE=disable
+DB_HOST:localhost
+DB_PORT:5433
+DB_USER:app_user
+DB_PASSWORD:app_password
+DB_NAME:app_db
+DB_SSL_MODE:disable
 
-# Redis
-REDIS_HOST=localhost:6379
-REDIS_PASSWORD=my_very_secure_password
-REDIS_DB=0
+KAFKA_BROKER:localhost:9092
+KAFKA_TOPIC:test-topic
+KAFKA_GROUP_ID:demo-group
 
-# Kafka
-KAFKA_BROKER=localhost:9092
-KAFKA_TOPIC=orders
-KAFKA_GROUP_ID=order-service-group
-
-# HTTP Servers
-API_SERVER_ADDR=:8081
-WEB_SERVER_ADDR=:8080
-
-# Logging
-LOG_LEVEL=info
+REDIS_HOST:127.0.0.1:6379
+REDIS_PASSWORD:my_very_secure_password
 ```
 
 ## API Endpoints
@@ -164,60 +124,8 @@ GET /order/{order_uid}
 2. Получить информацию о заказе
 3. Просмотреть детали заказа в удобном формате
 
-## Развертывание с Docker
-
-Для развертывания с помощью Docker:
-
-1. Соберите образ:
-```bash
-docker build -t order-service .
-```
-
-2. Запустите контейнер:
-```bash
-docker run -p 8080:8080 -p 8081:8081 --env-file .env order-service
-```
-
-Или используйте Docker Compose для полного развертывания со всеми зависимостями:
-
-```bash
-docker-compose up
-```
-
-## Мониторинг здоровья
-
-Сервис включает эндпоинты для проверки здоровья:
-
-- Health check: `/health`
-- Готовность: `/ready`
-- Статус: `/status`
 
 ## Логирование
 
-Приложение использует структурированное логирование с различными уровнями детализации (debug, info, warn, error). Уровень логирования можно настроить через переменную окружения `LOG_LEVEL`.
+Приложение использует структурированное логирование с различными уровнями детализации (debug, info, warn, error). 
 
-## Разработка
-
-### Добавление новых зависимостей
-
-```bash
-go get <package-name>
-```
-
-### Тестирование
-
-```bash
-go test ./...
-```
-
-### Форматирование кода
-
-```bash
-go fmt ./...
-```
-
-### Проверка стиля кода
-
-```bash
-go vet ./...
-```
