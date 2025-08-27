@@ -1,0 +1,75 @@
+version: "3.8"
+name: mock-order-service
+services:
+  db:
+    image: postgres:latest
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: postgres
+    volumes:
+      - ./db/init:/docker-entrypoint-initdb.d:ro
+    ports:
+      - "5433:5432"
+    healthcheck:
+      test: [ "CMD", "pg_isready", "-U", "postgres" ]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  kafka:
+    image: bitnami/kafka:latest
+    restart: unless-stopped
+    environment:
+      # KRaft on (we set process roles -> broker+controller)
+      - KAFKA_CFG_PROCESS_ROLES=broker,controller
+      - KAFKA_CFG_NODE_ID=1
+      # controller quorum voters: nodeId@host:controller_port
+      - KAFKA_CFG_CONTROLLER_QUORUM_VOTERS=1@kafka:9093
+      - KAFKA_CFG_CONTROLLER_LISTENER_NAMES=CONTROLLER
+
+      # listeners: controller listener on 9093, broker (client) on 9092
+      - KAFKA_CFG_LISTENERS=CONTROLLER://0.0.0.0:9093,PLAINTEXT://0.0.0.0:9092
+
+      # advertise both: host clients (localhost) and controller listener for internal use
+      - KAFKA_CFG_ADVERTISED_LISTENERS=PLAINTEXT://localhost:9092,CONTROLLER://kafka:9093
+
+      - KAFKA_CFG_LISTENER_SECURITY_PROTOCOL_MAP=CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT
+      - KAFKA_CFG_INTER_BROKER_LISTENER_NAME=PLAINTEXT
+
+      # tune heap if needed
+      - KAFKA_HEAP_OPTS=-Xmx256M -Xms128M
+
+      # allow plain text connections (dev only)
+      - ALLOW_PLAINTEXT_LISTENER=yes
+
+    ports:
+      - "9092:9092"   # host -> broker client port
+    volumes:
+      - kafka-data:/bitnami/kafka
+    healthcheck:
+      test: [ "CMD", "bash", "-c", "ss -ltn | grep -q 9092 || exit 1" ]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:latest
+    container_name: dev-redis
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:6379:6379"   # binds to localhost only
+    volumes:
+      - redis-data:/data            # persistence for RDB/AOF files
+      - ./redis.conf:/usr/local/etc/redis/redis.conf:ro
+    command: [ "redis-server", "/usr/local/etc/redis/redis.conf" ]
+    healthcheck:
+      test: [ "CMD", "redis-cli", "ping" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  kafka-data:
+  redis-data:

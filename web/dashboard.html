@@ -1,0 +1,256 @@
+<!doctype html>
+<html lang="ru">
+<head>
+    <meta charset="utf-8"/>
+    <meta name="viewport" content="width=device-width,initial-scale=1"/>
+    <title>Orders dashboard</title>
+    <style>
+        body {
+            font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial;
+            margin: 20px;
+            color: #222;
+            background: #fafafa;
+        }
+
+        .container {
+            max-width: 1100px;
+            margin: 0 auto;
+        }
+
+        header {
+            display: flex;
+            align-items: center;
+            gap: 16px;
+            margin-bottom: 18px;
+        }
+
+        h1 {
+            margin: 0;
+            font-size: 20px;
+        }
+
+        form {
+            margin-bottom: 18px;
+            display: flex;
+            gap: 8px;
+        }
+
+        input[type=text] {
+            flex: 1;
+            padding: 8px;
+            font-size: 14px;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            background: #fff
+        }
+
+        button {
+            padding: 8px 12px;
+            font-size: 14px;
+            border-radius: 4px;
+            border: none;
+            background: #0066cc;
+            color: white;
+            cursor: pointer;
+        }
+
+        button.secondary {
+            background: #666
+        }
+
+        .card {
+            border: 1px solid #eee;
+            padding: 16px;
+            border-radius: 8px;
+            background: #fff;
+            box-shadow: 0 1px 2px rgba(0, 0, 0, 0.03);
+            margin-bottom: 12px;
+        }
+
+        .kv {
+            display: flex;
+            gap: 12px;
+            margin: 6px 0;
+            align-items: baseline;
+        }
+
+        .kv b {
+            width: 220px;
+            display: inline-block;
+            color: #444;
+            font-weight: 600
+        }
+
+        .items table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+
+        .items th, .items td {
+            border-bottom: 1px solid #f0f0f0;
+            padding: 8px;
+            text-align: left;
+            font-size: 13px;
+            vertical-align: top;
+        }
+
+        .items th {
+            background: #fafafa;
+            font-weight: 700;
+            color: #333
+        }
+
+        .err {
+            color: #8a1f1f;
+            background: #fff0f0;
+            padding: 12px;
+            border-radius: 6px;
+            border: 1px solid #f2c6c6;
+            margin-bottom: 12px;
+        }
+
+        .hint {
+            color: #666;
+            font-size: 13px;
+            margin-top: 8px
+        }
+
+        .small {
+            font-size: 13px;
+            color: #666
+        }
+
+        pre.json {
+            background: #f7f7f7;
+            padding: 8px;
+            border-radius: 6px;
+            overflow: auto;
+            max-height: 160px;
+        }
+    </style>
+</head>
+<body>
+<div class="container">
+    <header>
+        <h1>Orders dashboard</h1>
+        <div class="hint">Введите OrderUID и нажмите «Найти»</div>
+    </header>
+
+    <form method="get" action="/">
+        <input name="orderUID" type="text" placeholder="order UID" value="{{.Query}}"/>
+        <button type="submit">Найти</button>
+        <button type="button" onclick="document.querySelector('input[name=orderUID]').value='';">Очистить</button>
+    </form>
+
+    {{if .Error}}
+    <div class="err"><strong>Error:</strong> {{.Error}}</div>
+    {{end}}
+
+    {{if .Order}}
+    <div class="card">
+        <h2>Order {{.Order.OrderUID}}</h2>
+
+        <div class="kv"><b>Order UID:</b> {{.Order.OrderUID}}</div>
+        <div class="kv"><b>Track number:</b> {{.Order.TrackNumber}}</div>
+        <div class="kv"><b>Entry:</b> {{.Order.Entry}}</div>
+        <div class="kv"><b>Locale:</b> {{.Order.Locale}}</div>
+        <div class="kv"><b>Internal signature:</b> {{.Order.InternalSignature}}</div>
+        <div class="kv"><b>Customer ID:</b> {{.Order.CustomerID}}</div>
+        <div class="kv"><b>Delivery service:</b> {{.Order.DeliveryService}}</div>
+        <div class="kv"><b>Shardkey:</b> {{.Order.Shardkey}}</div>
+        <div class="kv"><b>SmID:</b> {{if .Order.SmID}}{{.Order.SmID}}{{end}}</div>
+        <div class="kv"><b>Date created:</b> {{formatTime .Order.DateCreated}}</div>
+        <div class="kv"><b>Oof shard:</b> {{.Order.OofShard}}</div>
+        <div class="kv"><b>Created at:</b> {{formatTime .Order.CreatedAt}}</div>
+    </div>
+
+    {{if .Order.Delivery}}
+    <div class="card">
+        <h3>Delivery</h3>
+        <div class="kv"><b>ID:</b> {{.Order.Delivery.ID}}</div>
+        <div class="kv"><b>Order UID:</b> {{.Order.Delivery.OrderUID}}</div>
+        <div class="kv"><b>Name:</b> {{.Order.Delivery.Name}}</div>
+        <div class="kv"><b>Phone:</b> {{.Order.Delivery.Phone}}</div>
+        <div class="kv"><b>Zip:</b> {{.Order.Delivery.Zip}}</div>
+        <div class="kv"><b>City:</b> {{.Order.Delivery.City}}</div>
+        <div class="kv"><b>Address:</b> {{.Order.Delivery.Address}}</div>
+        <div class="kv"><b>Region:</b> {{.Order.Delivery.Region}}</div>
+        <div class="kv"><b>Email:</b> {{.Order.Delivery.Email}}</div>
+        <div class="kv"><b>Created at:</b> {{formatTime .Order.Delivery.CreatedAt}}</div>
+    </div>
+    {{end}}
+
+    {{if .Order.Payment}}
+    <div class="card">
+        <h3>Payment</h3>
+        <div class="kv"><b>ID:</b> {{.Order.Payment.ID}}</div>
+        <div class="kv"><b>Order UID:</b> {{.Order.Payment.OrderUID}}</div>
+        <div class="kv"><b>Transaction ID:</b> {{.Order.Payment.TransactionID}}</div>
+        <div class="kv"><b>Request ID:</b> {{.Order.Payment.RequestID}}</div>
+        <div class="kv"><b>Currency:</b> {{.Order.Payment.Currency}}</div>
+        <div class="kv"><b>Provider:</b> {{.Order.Payment.Provider}}</div>
+        <div class="kv"><b>Amount:</b> {{.Order.Payment.Amount}}</div>
+        <div class="kv"><b>PaymentDt (epoch):</b> {{.Order.Payment.PaymentDt}}</div>
+        <div class="kv"><b>Bank:</b> {{.Order.Payment.Bank}}</div>
+        <div class="kv"><b>Delivery cost:</b> {{.Order.Payment.DeliveryCost}}</div>
+        <div class="kv"><b>Goods total:</b> {{.Order.Payment.GoodsTotal}}</div>
+        <div class="kv"><b>Custom fee:</b> {{.Order.Payment.CustomFee}}</div>
+        <div class="kv"><b>Created at:</b> {{formatTime .Order.Payment.CreatedAt}}</div>
+    </div>
+    {{end}}
+
+    <div class="card items">
+        <h3>Items ({{len .Order.Items}})</h3>
+        {{if not .Order.Items}}
+        <div class="small">No items</div>
+        {{else}}
+        <table>
+            <thead>
+            <tr>
+                <th>id</th>
+                <th>order_uid</th>
+                <th>chrt_id</th>
+                <th>track_number</th>
+                <th>price</th>
+                <th>rid</th>
+                <th>name</th>
+                <th>sale</th>
+                <th>size</th>
+                <th>total_price</th>
+                <th>nm_id</th>
+                <th>brand</th>
+                <th>status</th>
+                <th>created_at</th>
+            </tr>
+            </thead>
+            <tbody>
+            {{range .Order.Items}}
+            <tr>
+                <td>{{.ID}}</td>
+                <td>{{.OrderUID}}</td>
+                <td>{{if .ChrtID}}{{.ChrtID}}{{end}}</td>
+                <td>{{.TrackNumber}}</td>
+                <td>{{if .Price}}{{.Price}}{{end}}</td>
+                <td>{{.Rid}}</td>
+                <td>{{.Name}}</td>
+                <td>{{if .Sale}}{{.Sale}}{{end}}</td>
+                <td>{{.Size}}</td>
+                <td>{{if .TotalPrice}}{{.TotalPrice}}{{end}}</td>
+                <td>{{if .NmID}}{{.NmID}}{{end}}</td>
+                <td>{{.Brand}}</td>
+                <td>{{if .Status}}{{.Status}}{{end}}</td>
+                <td>{{formatTime .CreatedAt}}</td>
+            </tr>
+            {{end}}
+            </tbody>
+        </table>
+        {{end}}
+    </div>
+
+    {{end}}
+
+    <footer style="margin-top:18px; color:#888; font-size:13px">Generated at {{.Now.Format "2006-01-02 15:04:05"}}
+    </footer>
+</div>
+</body>
+</html>

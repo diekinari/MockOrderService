@@ -1,0 +1,14 @@
+# Игнорируем файлы окружения
+.env
+.env.local
+.env.*.local
+
+# Игнорируем системные файлы macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Файлы IDE
+.idea/
+*.swp
+*.swo
