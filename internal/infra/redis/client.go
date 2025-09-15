@@ -4,8 +4,9 @@ import (
 	"MockOrderService/config"
 	"context"
 	"fmt"
-	"github.com/redis/go-redis/v9"
 	"time"
+
+	"github.com/redis/go-redis/v9"
 )
 
 // Client represents a Redis client

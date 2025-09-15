@@ -4,6 +4,7 @@ import (
 	"MockOrderService/internal/utils"
 	"context"
 	"encoding/json"
+
 	"github.com/segmentio/kafka-go"
 	"go.uber.org/zap"
 )

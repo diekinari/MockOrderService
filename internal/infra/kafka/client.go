@@ -2,6 +2,9 @@ package kafka
 
 import (
 	"context"
+	"errors"
+	"fmt"
+
 	"github.com/segmentio/kafka-go"
 )
 
@@ -40,6 +43,7 @@ func (c *Client) WriteMessages(ctx context.Context, messages ...kafka.Message) e
 }
 
 func (c *Client) Close() error {
-	c.reader.Close()
-	return c.writer.Close()
+	rError := fmt.Errorf("reader: %w", c.reader.Close())
+	wError := fmt.Errorf("writer: %w", c.writer.Close())
+	return errors.Join(rError, wError)
 }

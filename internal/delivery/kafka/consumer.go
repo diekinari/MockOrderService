@@ -7,6 +7,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+
 	"github.com/segmentio/kafka-go"
 	"go.uber.org/zap"
 )

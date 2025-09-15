@@ -3,7 +3,10 @@ package postgres
 import (
 	"MockOrderService/internal/domain/model"
 	"context"
+	"database/sql"
+	"errors"
 	"fmt"
+
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -16,12 +19,27 @@ func NewOrderRepository(pool *pgxpool.Pool) *OrderRepository {
 }
 
 // SaveOrder saves an order to the database
-func (r *OrderRepository) SaveOrder(ctx context.Context, order *model.Order) error {
+func (r *OrderRepository) SaveOrder(ctx context.Context, order *model.Order) (err error) {
 	tx, err := r.pool.Begin(ctx)
 	if err != nil {
 		return err
 	}
-	defer tx.Rollback(ctx)
+	//defer func() {
+	//	if rbErr := tx.Rollback(ctx); rbErr != nil {
+	//		return rbErr
+	//	}
+	//}()
+
+	defer func() {
+		// если основная функция возвращает ошибку – попытка откатить
+		if err != nil {
+			rbErr := tx.Rollback(ctx)
+			// если случается реальная ошибка отката – возвращаем её вместе с основной ошибкой
+			if rbErr != nil && !errors.Is(err, sql.ErrTxDone) {
+				err = fmt.Errorf("%w; rollback error %w", err, rbErr)
+			}
+		}
+	}()
 
 	_, err = tx.Exec(ctx, `
 INSERT INTO orders (
@@ -70,16 +88,29 @@ ON CONFLICT (order_uid, rid) DO NOTHING
 		}
 	}
 
-	return tx.Commit(ctx)
+	if err = tx.Commit(ctx); err != nil {
+		return err
+	}
+	return nil
 }
 
 // GetOrderByOrderUID returns an order by orderUID from the database
-func (r *OrderRepository) GetOrderByOrderUID(ctx context.Context, orderUID string) (*model.Order, error) {
+func (r *OrderRepository) GetOrderByOrderUID(ctx context.Context, orderUID string) (mdl *model.Order, err error) {
 	tx, err := r.pool.Begin(ctx)
 	if err != nil {
 		return nil, err
 	}
-	defer tx.Rollback(ctx)
+
+	defer func() {
+		// если основная функция возвращает ошибку – попытка откатить
+		if err != nil {
+			rbErr := tx.Rollback(ctx)
+			// если случается реальная ошибка отката – возвращаем её вместе с основной ошибкой
+			if rbErr != nil && !errors.Is(err, sql.ErrTxDone) {
+				err = fmt.Errorf("%w; rollback error %w", err, rbErr)
+			}
+		}
+	}()
 
 	var order model.Order
 	err = tx.QueryRow(ctx,
@@ -135,12 +166,23 @@ func (r *OrderRepository) GetOrderByOrderUID(ctx context.Context, orderUID strin
 }
 
 // GetRecentOrders returns a slice of recent orders from the database
-func (r *OrderRepository) GetRecentOrders(ctx context.Context, limit int) ([]*model.Order, error) {
+func (r *OrderRepository) GetRecentOrders(ctx context.Context, limit int) (mdls []*model.Order, err error) {
 	tx, err := r.pool.Begin(ctx)
 	if err != nil {
 		return nil, err
 	}
-	defer tx.Rollback(ctx)
+	//defer tx.Rollback(ctx)
+
+	defer func() {
+		// если основная функция возвращает ошибку – попытка откатить
+		if err != nil {
+			rbErr := tx.Rollback(ctx)
+			// если случается реальная ошибка отката – возвращаем её вместе с основной ошибкой
+			if rbErr != nil && !errors.Is(err, sql.ErrTxDone) {
+				err = fmt.Errorf("%w; rollback error %w", err, rbErr)
+			}
+		}
+	}()
 
 	var orders []*model.Order
 

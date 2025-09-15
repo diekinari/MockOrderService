@@ -4,8 +4,9 @@ import (
 	"MockOrderService/config"
 	"context"
 	"fmt"
-	"github.com/jackc/pgx/v5/pgxpool"
 	"time"
+
+	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 // Client represents a PostgreSQL client

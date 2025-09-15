@@ -4,7 +4,6 @@ import (
 	"MockOrderService/internal/domain/model"
 	"context"
 	"encoding/json"
-	"go.uber.org/zap"
 	"html/template"
 	"io"
 	"net/http"
@@ -13,6 +12,8 @@ import (
 	"runtime"
 	"strings"
 	"time"
+
+	"go.uber.org/zap"
 )
 
 type WebServer struct {
@@ -77,7 +78,7 @@ func getDashboardTemplate() string {
 var dashboardTmpl = template.Must(template.New("dashboard.html").Funcs(template.FuncMap{
 	"nl2br": func(s string) template.HTML {
 		// безопасный простой перевод newlines -> <br>
-		return template.HTML(strings.Replace(template.HTMLEscapeString(s), "\n", "<br>", -1))
+		return template.HTML(strings.ReplaceAll(template.HTMLEscapeString(s), "\n", "<br>"))
 	},
 	"formatTime": func(t *time.Time) string {
 		if t == nil {
@@ -119,7 +120,11 @@ func handleRequest(w http.ResponseWriter, r *http.Request, sugar *zap.SugaredLog
 			_ = dashboardTmpl.Execute(w, data)
 			return
 		}
-		defer resp.Body.Close()
+		defer func() {
+			if cerr := resp.Body.Close(); cerr != nil {
+				sugar.Warnw("failed to close response body", "error", cerr, "apiURL", apiURL)
+			}
+		}()
 
 		// Read and decode into Order (primary) or APIError (fallback)
 		var order model.Order
@@ -131,7 +136,9 @@ func handleRequest(w http.ResponseWriter, r *http.Request, sugar *zap.SugaredLog
 			// try to decode API error (rewind by re-fetching body not possible, so re-request or decode via bytes)
 
 			// reset by reading raw bytes from a fresh request
-			resp.Body.Close()
+			if cerr := resp.Body.Close(); cerr != nil {
+				sugar.Warnw("failed to close response body", "error", cerr, "apiURL", apiURL)
+			}
 			resp2, err2 := client.Get(apiURL)
 			if err2 != nil {
 				sugar.Errorw("request retry failed", "error", err2)
@@ -139,7 +146,11 @@ func handleRequest(w http.ResponseWriter, r *http.Request, sugar *zap.SugaredLog
 				_ = dashboardTmpl.Execute(w, data)
 				return
 			}
-			defer resp2.Body.Close()
+			defer func() {
+				if cerr := resp2.Body.Close(); cerr != nil {
+					sugar.Warnw("failed to close response body", "error", cerr, "apiURL", apiURL)
+				}
+			}()
 			raw, err3 := io.ReadAll(resp2.Body)
 			if err3 != nil {
 				sugar.Errorw("failed to read body", "error", err3)

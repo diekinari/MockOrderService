@@ -1,0 +1,18 @@
+version: "2"
+linters:
+  enable:
+    - govet         # стандартный vet
+    - staticcheck   # много полезных проверок (заменяет golangci's older checks)
+    - errcheck      # проверяет обработку возвращаемых ошибок
+#    - revive        # стиль и некоторые улучшения кода (настраиваемый)
+    - ineffassign   # неэффективные присвоения
+
+  disable:
+    - revive
+
+formatters:
+  # Enable specific formatter.
+  # Default: [] (uses standard Go formatting)
+  enable:
+    - gofmt
+    - goimports

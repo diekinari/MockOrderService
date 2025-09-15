@@ -13,12 +13,14 @@ import (
 	redisRepo "MockOrderService/internal/repository/redis"
 	"MockOrderService/internal/service"
 	"context"
+	"errors"
 	"fmt"
-	_ "github.com/jackc/pgx/v5/stdlib"
 	"log"
 	"os/signal"
 	"syscall"
 	"time"
+
+	_ "github.com/jackc/pgx/v5/stdlib"
 )
 
 func main() {
@@ -28,7 +30,7 @@ func main() {
 		log.Fatalf("cannot init logger %v", err)
 		return
 	}
-	defer sugar.Sync()
+	//defer sugar.Sync()
 
 	cfg, err := config.Load()
 	if err != nil {
@@ -53,10 +55,10 @@ func main() {
 		sugar.Fatalw("failed to initialize Redis client", "error", err)
 		return
 	}
-	defer redisClient.Close()
+	//defer redisClient.Close()
 
 	kafkaClient := kafkaInfra.NewClient(cfg.KafkaBroker, cfg.KafkaGroupId, cfg.KafkaTopic)
-	defer kafkaClient.Close()
+	//defer kafkaClient.Close()
 
 	orderRepo := postgresRepo.NewOrderRepository(pgClient.Pool)
 	cacheRepo := redisRepo.NewCacheRepository(redisClient.Client)
@@ -105,13 +107,34 @@ func main() {
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
+	var errs []error
+
 	// Останавливаем серверы
 	if err := apiServer.Shutdown(shutdownCtx); err != nil {
-		sugar.Errorw("Failed to shutdown API server gracefully", "error", err)
+		//sugar.Errorw("Failed to shutdown API server gracefully", "error", err)
+		errs = append(errs, fmt.Errorf("API_Server: %w", err))
 	}
 
 	if err := webServer.Shutdown(shutdownCtx); err != nil {
-		sugar.Errorw("Failed to shutdown Web server gracefully", "error", err)
+		//sugar.Errorw("Failed to shutdown Web server gracefully", "error", err)
+		errs = append(errs, fmt.Errorf("Web_Server: %w", err))
+	}
+
+	// Закрываем подключения
+	if err := redisClient.Close(); err != nil {
+		errs = append(errs, fmt.Errorf("redis: %w", err))
+	}
+
+	if err := kafkaClient.Close(); err != nil {
+		errs = append(errs, fmt.Errorf("kafka: %w", err))
+	}
+
+	if err := sugar.Sync(); err != nil {
+		errs = append(errs, fmt.Errorf("logger: %w", err))
+	}
+
+	if len(errs) > 0 {
+		sugar.Errorw("errors during shutdown", "error", errors.Join(errs...))
 	}
 
 	sugar.Info("Application shutdown complete")
