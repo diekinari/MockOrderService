@@ -57,7 +57,11 @@ func main() {
 	}
 	//defer redisClient.Close()
 
-	kafkaClient := kafkaInfra.NewClient(cfg.KafkaBroker, cfg.KafkaGroupId, cfg.KafkaTopic)
+	kafkaClient, err := kafkaInfra.NewClient(cfg.KafkaBroker, cfg.KafkaGroupId, cfg.KafkaTopic)
+	if err != nil {
+		sugar.Fatalw("failed to initialize Kafka client", "error", err)
+		return
+	}
 	//defer kafkaClient.Close()
 
 	orderRepo := postgresRepo.NewOrderRepository(pgClient.Pool)
