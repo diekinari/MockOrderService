@@ -1,7 +1,7 @@
 package kafka
 
 import (
-	"MockOrderService/internal/utils"
+	faker "MockOrderService/internal/faker"
 	"context"
 	"encoding/json"
 
@@ -13,12 +13,14 @@ type producerClient interface {
 	WriteMessages(ctx context.Context, messages ...kafka.Message) error
 }
 
+// Producer represents a Kafka producer
 type Producer struct {
 	client      producerClient
 	sugar       *zap.SugaredLogger
 	errorsCount int
 }
 
+// NewProducer creates a new Kafka producer with the given client and logger.
 func NewProducer(client producerClient, sugar *zap.SugaredLogger) *Producer {
 	return &Producer{
 		client:      client,
@@ -31,8 +33,8 @@ func NewProducer(client producerClient, sugar *zap.SugaredLogger) *Producer {
 // Producer emulates limited independent random order generator.
 // Perhaps something inside should be in the main service, but it's too short.
 func (p *Producer) Start(stop context.CancelFunc) {
-	for i := 0; i < 10; i++ {
-		order := utils.MockOrders[i]
+	for i := 0; i < 15; i++ {
+		order := faker.NewFakeOrder()
 		value, err := json.Marshal(order)
 		if err != nil {
 			p.sugar.Errorw("Failed to marshal order", "orderUID", order.OrderUID, "error", err)
@@ -44,7 +46,7 @@ func (p *Producer) Start(stop context.CancelFunc) {
 			Value: value,
 		})
 		if err != nil {
-			p.errorsCount += 1
+			p.errorsCount++
 			p.sugar.Errorw("failed to write messages", "orderUID", order.OrderUID, "error", err)
 			if p.errorsCount > 3 {
 				p.sugar.Fatal("producer has reached maximum amount of writing errors, stopping the service")

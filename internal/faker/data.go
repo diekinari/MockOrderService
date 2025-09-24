@@ -1,8 +1,14 @@
-package utils
+// Package faker provides all mock orders that are requred for demonstration of this service
+package faker
 
 import (
 	"MockOrderService/internal/domain/model"
+	"fmt"
+	"math/rand"
+	"strings"
 	"time"
+
+	"github.com/brianvoe/gofakeit/v6"
 )
 
 func int64Ptr(v int64) *int64 { return &v }
@@ -1316,4 +1322,339 @@ var SeedOrders = []*model.Order{
 			},
 		},
 	},
+}
+
+// InitFaker sets the seed for gofakeit package
+func InitFaker(seed int64) {
+	if seed == 0 {
+		seed = time.Now().UnixNano()
+	}
+	gofakeit.Seed(seed)
+}
+
+// helper: pointer helpers
+func int32ptr(v int32) *int32        { return &v }
+func int64ptr(v int64) *int64        { return &v }
+func timeptr(t time.Time) *time.Time { return &t }
+
+// fake phone in +7XXXXXXXXXX format
+func fakeRussianPhone() string {
+	n := gofakeit.Number(0, 9999999999) // 10 digits
+	return fmt.Sprintf("+7%010d", n)
+}
+
+// fake 6-digit Russian zip
+func fakeZip6() string {
+	return fmt.Sprintf("%06d", gofakeit.Number(0, 999999))
+}
+
+// fakeSize — простой генератор размеров
+func fakeSize() string {
+	choices := []string{"XS", "S", "M", "L", "XL", "XXL", "One Size"}
+	if gofakeit.IntRange(0, 100) < 70 {
+		return choices[gofakeit.IntRange(0, len(choices)-1)]
+	}
+	return fmt.Sprintf("%d", gofakeit.IntRange(36, 47))
+}
+
+// Генерация одного Item — гарантируем required поля
+func fakeItem(orderUID string) *model.Item {
+	price := gofakeit.IntRange(100, 10000)
+	total := price // для простоты: total = price
+	nm := gofakeit.IntRange(1000, 9999)
+	chrt := gofakeit.Int64()
+	sale := int32(gofakeit.IntRange(0, 30))
+
+	return &model.Item{
+		ID:          int32(gofakeit.Number(1, 100000)),
+		OrderUID:    orderUID,
+		ChrtID:      int64ptr(chrt),
+		TrackNumber: gofakeit.UUID(),
+		Price:       int64ptr(int64(price)), // required
+		Rid:         gofakeit.UUID(),        // required + unique
+		Name:        gofakeit.ProductName(),
+		Sale:        int32ptr(sale),
+		Size:        fakeSize(),
+		TotalPrice:  int64ptr(int64(total)), // required
+		NmID:        int64ptr(int64(nm)),
+		Brand:       gofakeit.Company(),
+		Status:      int32ptr(int32(gofakeit.IntRange(0, 5))),
+		CreatedAt:   timeptr(time.Now()),
+	}
+}
+
+// Генерация Delivery — соблюдаем required поля и форматы
+func fakeDelivery(orderUID string) *model.Delivery {
+	return &model.Delivery{
+		ID:        int32(gofakeit.Number(1, 1000000)),
+		OrderUID:  orderUID,
+		Name:      gofakeit.Name(),
+		Phone:     fakeRussianPhone(), // +7XXXXXXXXXX
+		Zip:       fakeZip6(),         // 6 digits
+		City:      gofakeit.City(),
+		Address:   gofakeit.Street(),
+		Region:    gofakeit.State(),
+		Email:     gofakeit.Email(),
+		CreatedAt: timeptr(time.Now()),
+	}
+}
+
+// Генерация Payment — amount = goodsTotal + delivery + custom
+func fakePayment(orderUID string, goodsTotal int64) *model.Payment {
+	deliveryCost := int64(100) // можно варьировать
+	customFee := int64(gofakeit.IntRange(0, 200))
+	amount := goodsTotal + deliveryCost + customFee
+	now := time.Now().Unix()
+
+	return &model.Payment{
+		ID:            int32(gofakeit.Number(1, 1000000)),
+		OrderUID:      orderUID,
+		TransactionID: gofakeit.UUID(),
+		RequestID:     gofakeit.UUID(),
+		Currency:      "RUB",
+		Provider:      gofakeit.Company(),
+		Amount:        int64ptr(amount), // required and >=0
+		PaymentDt:     int64ptr(now),    // >0
+		Bank:          gofakeit.Company(),
+		DeliveryCost:  int64ptr(deliveryCost),
+		GoodsTotal:    int64ptr(goodsTotal),
+		CustomFee:     int64ptr(customFee),
+		CreatedAt:     timeptr(time.Now()),
+	}
+}
+
+// NewFakeOrder генерирует корректный Order, соответствующий ValidateOrder.
+func NewFakeOrder() *model.Order {
+	orderUID := gofakeit.UUID()
+	// сделаем дату созданя недавней и не в будущем
+	dateCreated := time.Now().Add(-time.Duration(gofakeit.IntRange(0, 48)) * time.Hour)
+	createdAt := time.Now()
+
+	// генерируем 1..5 items, уникальные rid
+	n := gofakeit.IntRange(1, 5)
+	items := make([]*model.Item, 0, n)
+	seenRID := map[string]struct{}{}
+	var goodsTotal int64
+	for i := 0; i < n; i++ {
+		it := fakeItem(orderUID)
+		// гарантируем уникальность rid
+		for {
+			if _, ok := seenRID[it.Rid]; !ok {
+				seenRID[it.Rid] = struct{}{}
+				break
+			}
+			it.Rid = gofakeit.UUID()
+		}
+		items = append(items, it)
+		if it.TotalPrice != nil {
+			goodsTotal += *it.TotalPrice
+		}
+	}
+
+	// delivery & payment (payment.amount will be computed from goodsTotal)
+	del := fakeDelivery(orderUID)
+	pay := fakePayment(orderUID, goodsTotal)
+
+	// Locale must be <= 10 chars
+	locale := gofakeit.Language() // e.g. "english"
+	if len(locale) > 10 {
+		locale = locale[:10]
+	}
+
+	// SmID >=0 optionally
+	var smid *int32
+	if gofakeit.IntRange(0, 100) < 80 { // 80% have smid
+		smid = int32ptr(int32(gofakeit.IntRange(0, 1000)))
+	}
+
+	result := &model.Order{
+		OrderUID:          orderUID,
+		TrackNumber:       gofakeit.UUID(), // required
+		Entry:             gofakeit.Word(),
+		Locale:            locale,
+		InternalSignature: "",
+		CustomerID:        gofakeit.UUID(),
+		DeliveryService:   gofakeit.Company(),
+		Shardkey:          gofakeit.LetterN(4),
+		SmID:              smid,
+		DateCreated:       &dateCreated,
+		OofShard:          gofakeit.Word(),
+		CreatedAt:         &createdAt,
+		Delivery:          del,
+		Payment:           pay,
+		Items:             items,
+	}
+
+	injectFaults(result, 0.1)
+	return result
+}
+
+// injectFaults mutates order o: with given rate (0.0..1.0) randomly applies several fault types.
+// Returns list of human-readable descriptions of applied faults.
+func injectFaults(o *model.Order, rate float64) []string {
+	if o == nil {
+		return []string{"order-is-nil"}
+	}
+	applied := []string{}
+
+	// helper: decide with probability p
+	withProb := func(p float64) bool {
+		return rand.Float64() < p
+	}
+
+	// 1) remove delivery entirely
+	if withProb(rate * 0.05) { // rare
+		o.Delivery = nil
+		applied = append(applied, "remove-delivery")
+	}
+
+	// 2) remove payment entirely
+	if withProb(rate * 0.05) {
+		o.Payment = nil
+		applied = append(applied, "remove-payment")
+	}
+
+	// 3) corrupt phone (not matching +7XXXXXXXXXX)
+	if o.Delivery != nil && withProb(rate*0.3) {
+		// several options: missing plus, wrong length, letters
+		switch rand.Intn(3) {
+		case 0:
+			o.Delivery.Phone = "8" + o.Delivery.Phone // leading 8 may be normalized, so use corrupt
+		case 1:
+			o.Delivery.Phone = "+700000" // too short
+		default:
+			o.Delivery.Phone = "phoneXYZ"
+		}
+		applied = append(applied, "bad-phone")
+	}
+
+	// 4) corrupt zip (not 6 digits)
+	if o.Delivery != nil && withProb(rate*0.25) {
+		o.Delivery.Zip = "12AB" // invalid
+		applied = append(applied, "bad-zip")
+	}
+
+	// 5) corrupt email
+	if o.Delivery != nil && withProb(rate*0.2) {
+		o.Delivery.Email = "not-an-email"
+		applied = append(applied, "bad-email")
+	}
+
+	// 6) empty items or one item with nil price
+	if withProb(rate * 0.15) {
+		if withProb(0.5) {
+			o.Items = []*model.Item{} // empty
+			applied = append(applied, "empty-items")
+		} else if len(o.Items) > 0 {
+			// set first item's price to nil
+			o.Items[0].Price = nil
+			applied = append(applied, "item-price-nil")
+		}
+	}
+
+	// 7) duplicate RID
+	if len(o.Items) >= 2 && withProb(rate*0.2) {
+		// make items[1] rid equal to items[0]
+		o.Items[1].Rid = o.Items[0].Rid
+		applied = append(applied, "duplicate-rid")
+	}
+
+	// 8) negative prices or totals
+	if withProb(rate * 0.1) {
+		if len(o.Items) > 0 {
+			v := int64(-100)
+			o.Items[0].Price = &v
+			applied = append(applied, "negative-price")
+		} else if o.Payment != nil {
+			v := int64(-50)
+			o.Payment.Amount = &v
+			applied = append(applied, "negative-payment-amount")
+		}
+	}
+
+	// 9) payment.amount mismatch (sum != goods+delivery+custom)
+	if o.Payment != nil && withProb(rate*0.25) {
+		// change amount slightly to cause mismatch
+		if o.Payment.Amount != nil {
+			amt := *o.Payment.Amount + int64(123) // arbitrary delta
+			o.Payment.Amount = &amt
+			applied = append(applied, "payment-amount-mismatch")
+		}
+	}
+
+	// 10) make date_created in future
+	if o.DateCreated != nil && withProb(rate*0.08) {
+		future := time.Now().Add(48 * time.Hour)
+		o.DateCreated = &future
+		applied = append(applied, "date-created-future")
+	}
+
+	// 11) oversized locale (>10)
+	if withProb(rate * 0.12) {
+		o.Locale = strings.Repeat("x", 20)
+		applied = append(applied, "locale-too-long")
+	}
+
+	// 12) set Payment.GoodsTotal inconsistent with items sum
+	if o.Payment != nil && withProb(rate*0.15) {
+		if o.Payment.GoodsTotal != nil {
+			g := *o.Payment.GoodsTotal + 999
+			o.Payment.GoodsTotal = &g
+			applied = append(applied, "goods-total-mismatch")
+		}
+	}
+
+	// 13) set SmID negative (should be >=0)
+	if withProb(rate * 0.05) {
+		n := int32(-5)
+		o.SmID = &n
+		applied = append(applied, "smid-negative")
+	}
+
+	// 14) make item sale out of range
+	if len(o.Items) > 0 && withProb(rate*0.08) {
+		v := int32(200)
+		o.Items[0].Sale = &v
+		applied = append(applied, "item-sale-too-large")
+	}
+
+	// 15) set payment.payment_dt negative or zero
+	if o.Payment != nil && withProb(rate*0.05) {
+		z := int64(0)
+		o.Payment.PaymentDt = &z
+		applied = append(applied, "payment-dt-zero")
+	}
+
+	// 16) corrupt order UID (empty)
+	if withProb(rate * 0.03) {
+		o.OrderUID = ""
+		applied = append(applied, "orderuid-empty")
+	}
+
+	// 17) set item.total_price to negative
+	if len(o.Items) > 0 && withProb(rate*0.05) {
+		v := int64(-10)
+		o.Items[0].TotalPrice = &v
+		applied = append(applied, "item-totalprice-negative")
+	}
+
+	// 18) partially nil Payment fields (e.g. Amount nil)
+	if o.Payment != nil && withProb(rate*0.07) {
+		o.Payment.Amount = nil
+		applied = append(applied, "payment-amount-nil")
+	}
+
+	// 19) strip required delivery.name
+	if o.Delivery != nil && withProb(rate*0.06) {
+		o.Delivery.Name = ""
+		applied = append(applied, "delivery-name-empty")
+	}
+
+	// 20) random truncation of string fields to empty
+	if withProb(rate * 0.02) {
+		o.Items[0].Name = ""
+		applied = append(applied, "item-name-empty")
+	}
+
+	return applied
 }

@@ -1,3 +1,6 @@
+// Package kafka implements a Kafka consumer for processing order-related messages.
+// It provides functionality to consume messages from Kafka topics, process order data,
+// and handle message commits and error scenarios with retry mechanisms.
 package kafka
 
 import (
@@ -25,10 +28,12 @@ type Consumer struct {
 	errorsCount int
 }
 
+// NewConsumer creates a new Kafka consumer with the given client, service, and logger.
 func NewConsumer(client consumerClient, service *service.OrderService, sugar *zap.SugaredLogger) *Consumer {
 	return &Consumer{client: client, service: service, sugar: sugar}
 }
 
+// Start functions starts a consumer. It reads the messages and process them accordingly with provided method.
 func (c *Consumer) Start(ctx context.Context, stop context.CancelFunc) {
 	for {
 		select {
@@ -38,7 +43,7 @@ func (c *Consumer) Start(ctx context.Context, stop context.CancelFunc) {
 		default:
 			msg, err := c.client.ReadMessage(ctx)
 			if err != nil {
-				c.errorsCount += 1
+				c.errorsCount++
 				c.sugar.Errorw("failed to read message", "error", err)
 				if c.errorsCount > 3 {
 					c.sugar.Fatal("consumer has reached maximum amount of errors, stopping the service")
