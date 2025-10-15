@@ -11,6 +11,7 @@ import (
 	"go.uber.org/zap"
 )
 
+//go:generate mockgen -source=order_service.go -destination=../mocks/mock_order_service.go -package=mocks -mock_names OrderRepository=MockOrderRepositoryService,CacheRepository=MockCacheRepositoryService
 type OrderRepository interface {
 	GetRecentOrders(ctx context.Context, limit int) ([]*model.Order, error)
 	SaveOrder(ctx context.Context, order *model.Order) error
@@ -51,8 +52,8 @@ func (s *OrderService) HeatUpCache(ctx context.Context) {
 				s.sugar.Infow("CACHE HEAT-UP: database is empty, cache remains empty too", "error", err)
 				return
 			}
-			s.sugar.Fatalw("CACHE HEAT-UP: failed to get fresh data from db", "error", err)
-			return
+            s.sugar.Errorw("CACHE HEAT-UP: failed to get fresh data from db", "error", err)
+            return
 		}
 		for _, order := range orders {
 			if err = s.cacheRepo.SaveOrder(ctx, order); err != nil {

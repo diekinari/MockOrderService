@@ -14,6 +14,7 @@ import (
 	"go.uber.org/zap"
 )
 
+//go:generate mockgen -source=api_server.go -destination=../../mocks/mock_api_server.go -package=mocks
 type OrderRepository interface {
 	GetOrderByOrderUID(ctx context.Context, orderUID string) (*model.Order, error)
 }
