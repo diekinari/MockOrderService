@@ -76,6 +76,7 @@ func main() {
 	kafkaConsumer := kafka.NewConsumer(kafkaClient, orderService, sugar)
 	go kafkaConsumer.Start(ctx, stop)
 
+	monitoring.Init()
 	healthChecker := monitoring.NewHealthChecker(pgClient, redisClient, 10*time.Second, sugar, stop)
 	go healthChecker.Start(ctx)
 

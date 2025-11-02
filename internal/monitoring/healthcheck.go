@@ -48,7 +48,7 @@ func (h *HealthChecker) Start(ctx context.Context) {
 				h.stop()
 				return
 			}
-			h.sugar.Info("healthcheck pased")
+			h.sugar.Info("healthcheck passed")
 		}
 	}
 }

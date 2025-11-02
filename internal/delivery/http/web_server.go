@@ -2,6 +2,7 @@ package http
 
 import (
 	"MockOrderService/internal/domain/model"
+	"MockOrderService/internal/monitoring"
 	"context"
 	"encoding/json"
 	"html/template"
@@ -13,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"go.uber.org/zap"
 )
 
@@ -29,9 +31,13 @@ func (ws *WebServer) StartWebServer(sugar *zap.SugaredLogger) error {
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		handleRequest(w, r, sugar)
 	})
+	mux.Handle("/metrics", promhttp.HandlerFor(monitoring.Registry, promhttp.HandlerOpts{}))
+
+	wrappedHandler := Metrics(mux)
+
 	srv := &http.Server{
 		Addr:    ":8082",
-		Handler: mux,
+		Handler: wrappedHandler,
 	}
 	ws.server = srv
 	sugar.Infow("started client server at :8082")

@@ -2,10 +2,12 @@ package postgres
 
 import (
 	"MockOrderService/internal/domain/model"
+	"MockOrderService/internal/monitoring"
 	"context"
 	"database/sql"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -20,17 +22,19 @@ func NewOrderRepository(pool *pgxpool.Pool) *OrderRepository {
 
 // SaveOrder saves an order to the database
 func (r *OrderRepository) SaveOrder(ctx context.Context, order *model.Order) (err error) {
+	start := time.Now()
 	tx, err := r.pool.Begin(ctx)
 	if err != nil {
 		return err
 	}
-	//defer func() {
-	//	if rbErr := tx.Rollback(ctx); rbErr != nil {
-	//		return rbErr
-	//	}
-	//}()
 
 	defer func() {
+		duration := time.Since(start)
+		success := err == nil
+
+		// Записываем метрику длительности запроса
+		monitoring.RecordDBQueryDuration("insert", "orders", success, duration)
+
 		// если основная функция возвращает ошибку – попытка откатить
 		if err != nil {
 			rbErr := tx.Rollback(ctx)
@@ -96,12 +100,19 @@ ON CONFLICT (order_uid, rid) DO NOTHING
 
 // GetOrderByOrderUID returns an order by orderUID from the database
 func (r *OrderRepository) GetOrderByOrderUID(ctx context.Context, orderUID string) (mdl *model.Order, err error) {
+	start := time.Now()
 	tx, err := r.pool.Begin(ctx)
 	if err != nil {
 		return nil, err
 	}
 
 	defer func() {
+		duration := time.Since(start)
+		success := err == nil
+
+		// Записываем метрику длительности запроса
+		monitoring.RecordDBQueryDuration("select", "orders", success, duration)
+
 		// если основная функция возвращает ошибку – попытка откатить
 		if err != nil {
 			rbErr := tx.Rollback(ctx)
@@ -167,6 +178,7 @@ func (r *OrderRepository) GetOrderByOrderUID(ctx context.Context, orderUID strin
 
 // GetRecentOrders returns a slice of recent orders from the database
 func (r *OrderRepository) GetRecentOrders(ctx context.Context, limit int) (mdls []*model.Order, err error) {
+	start := time.Now()
 	tx, err := r.pool.Begin(ctx)
 	if err != nil {
 		return nil, err
@@ -174,6 +186,12 @@ func (r *OrderRepository) GetRecentOrders(ctx context.Context, limit int) (mdls 
 	//defer tx.Rollback(ctx)
 
 	defer func() {
+		duration := time.Since(start)
+		success := err == nil
+
+		// Записываем метрику длительности запроса
+		monitoring.RecordDBQueryDuration("select", "orders", success, duration)
+
 		// если основная функция возвращает ошибку – попытка откатить
 		if err != nil {
 			rbErr := tx.Rollback(ctx)

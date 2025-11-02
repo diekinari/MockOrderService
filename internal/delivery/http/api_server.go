@@ -49,6 +49,9 @@ func NewApiServer(sugar *zap.SugaredLogger, ctx context.Context, orderRepo Order
 // If server fails to start or shutdown, logs error.
 func (as *ApiServer) StartApiServer() error {
 	r := mux.NewRouter()
+
+	r.Use(Metrics)
+
 	r.HandleFunc("/api/order/{orderUID}", as.handleOrder)
 
 	srv := &http.Server{

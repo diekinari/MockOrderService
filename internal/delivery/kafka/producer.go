@@ -2,6 +2,7 @@ package kafka
 
 import (
 	faker "MockOrderService/internal/faker"
+	"MockOrderService/internal/monitoring"
 	"context"
 	"encoding/json"
 
@@ -11,6 +12,7 @@ import (
 
 type producerClient interface {
 	WriteMessages(ctx context.Context, messages ...kafka.Message) error
+	Topic() string
 }
 
 // Producer represents a Kafka producer
@@ -48,6 +50,8 @@ func (p *Producer) Start(stop context.CancelFunc) {
 		if err != nil {
 			p.errorsCount++
 			p.sugar.Errorw("failed to write messages", "orderUID", order.OrderUID, "error", err)
+			// Записываем метрику с success=false при ошибке записи
+			monitoring.RecordKafkaMessagesProduced(p.client.Topic(), false)
 			if p.errorsCount > 3 {
 				p.sugar.Fatal("producer has reached maximum amount of writing errors, stopping the service")
 				stop()
@@ -55,6 +59,8 @@ func (p *Producer) Start(stop context.CancelFunc) {
 			}
 			continue
 		}
+		// Сообщение записано успешно
+		monitoring.RecordKafkaMessagesProduced(p.client.Topic(), true)
 		p.sugar.Infow("order produced", "orderUID", order.OrderUID)
 	}
 	p.sugar.Infow("producer has finished")

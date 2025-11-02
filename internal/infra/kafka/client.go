@@ -55,6 +55,11 @@ func (c *Client) WriteMessages(ctx context.Context, messages ...kafka.Message) e
 	return c.writer.WriteMessages(ctx, messages...)
 }
 
+// Topic returns the topic name
+func (c *Client) Topic() string {
+	return c.writer.Topic
+}
+
 // Close closes kafka client completely
 func (c *Client) Close() error {
 	rError := fmt.Errorf("reader: %w", c.reader.Close())

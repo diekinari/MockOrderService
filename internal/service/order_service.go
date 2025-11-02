@@ -2,6 +2,7 @@ package service
 
 import (
 	"MockOrderService/internal/domain/model"
+	"MockOrderService/internal/monitoring"
 	"context"
 	"database/sql"
 	"errors"
@@ -52,8 +53,8 @@ func (s *OrderService) HeatUpCache(ctx context.Context) {
 				s.sugar.Infow("CACHE HEAT-UP: database is empty, cache remains empty too", "error", err)
 				return
 			}
-            s.sugar.Errorw("CACHE HEAT-UP: failed to get fresh data from db", "error", err)
-            return
+			s.sugar.Errorw("CACHE HEAT-UP: failed to get fresh data from db", "error", err)
+			return
 		}
 		for _, order := range orders {
 			if err = s.cacheRepo.SaveOrder(ctx, order); err != nil {
@@ -75,8 +76,17 @@ func (s *OrderService) HeatUpCache(ctx context.Context) {
 // So error is returned in case of failure to save the order to db.
 // But there is no returning error in case of failure to save the order to cache.
 func (s *OrderService) ProcessOrder(ctx context.Context, order *model.Order) error {
+	start := time.Now()
+
+	defer func() {
+		duration := time.Since(start)
+		monitoring.RecordOrderProcessDuration(duration)
+	}()
+
 	err := s.orderRepo.SaveOrder(ctx, order)
 	if err != nil {
+		// Ошибка сохранения в БД - заказ не обработан
+		monitoring.RecordOrderFailed()
 		return fmt.Errorf("failed to save message to db – orderUID: %v – err: %w", order.OrderUID, err)
 	}
 	s.sugar.Infow("order was saved to db", "orderUID", order.OrderUID)
@@ -84,8 +94,13 @@ func (s *OrderService) ProcessOrder(ctx context.Context, order *model.Order) err
 	err = s.cacheRepo.SaveOrder(ctx, order)
 	if err != nil {
 		s.sugar.Errorw("failed to cache order", "orderUID", order.OrderUID, "error", err)
+		// Ошибка кэша не критична - заказ сохранен в БД, считаем успешной обработкой
+		monitoring.RecordOrderCreated()
 		return nil
 	}
 	s.sugar.Infow("order was cached", "orderUID", order.OrderUID)
+
+	// Успешная обработка - заказ сохранен в БД и кэш
+	monitoring.RecordOrderCreated()
 	return nil
 }

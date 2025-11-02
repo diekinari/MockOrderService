@@ -1,0 +1,19 @@
+# Prometheus конфигурация для сбора метрик из вашего приложения
+global:
+  scrape_interval: 15s      # Как часто собирать метрики
+  evaluation_interval: 15s   # Как часто оценивать правила
+  external_labels:
+    monitor: 'mock-order-service'
+
+# Конфигурация для сбора метрик (scrape configs)
+scrape_configs:
+  # Метрики из вашего Go приложения
+  - job_name: 'mock-order-service'
+    scrape_interval: 15s
+    metrics_path: '/metrics'
+    static_configs:
+      - targets: ['host.docker.internal:8082']  # Web Server с /metrics endpoint
+        labels:
+          service: 'mock-order-service'
+          port: '8082'
+

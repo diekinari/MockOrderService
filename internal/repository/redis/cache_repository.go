@@ -2,8 +2,10 @@ package redis
 
 import (
 	"MockOrderService/internal/domain/model"
+	"MockOrderService/internal/monitoring"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"time"
 
@@ -19,7 +21,14 @@ func NewCacheRepository(client *redis.Client) *CacheRepository {
 }
 
 // SaveOrder saves order to cache with expiration time of 5 minutes
-func (r *CacheRepository) SaveOrder(ctx context.Context, order *model.Order) error {
+func (r *CacheRepository) SaveOrder(ctx context.Context, order *model.Order) (err error) {
+	start := time.Now()
+	defer func() {
+		duration := time.Since(start)
+		success := err == nil
+		monitoring.RecordCacheOpDuration("save", success, duration)
+	}()
+
 	orderKey := fmt.Sprintf("order:%s", order.OrderUID)
 	data, err := json.Marshal(order)
 	if err != nil {
@@ -35,15 +44,28 @@ func (r *CacheRepository) SaveOrder(ctx context.Context, order *model.Order) err
 }
 
 // GetOrder returns order from cache if it exists, otherwise returns error
-func (r *CacheRepository) GetOrder(ctx context.Context, orderUID string) (*model.Order, error) {
+func (r *CacheRepository) GetOrder(ctx context.Context, orderUID string) (result *model.Order, err error) {
+	start := time.Now()
+	defer func() {
+		duration := time.Since(start)
+		// cache miss (redis.Nil) или успех - это нормально
+		success := err == nil || errors.Is(err, redis.Nil)
+		monitoring.RecordCacheOpDuration("get", success, duration)
+	}()
+
 	orderKey := fmt.Sprintf("order:%s", orderUID)
 	// redis value is a json object, so we take bytes right away
 	val, err := r.client.Get(ctx, orderKey).Bytes()
 	if err != nil {
-		// cache miss
+		// cache miss (redis.Nil) или ошибка
+		if errors.Is(err, redis.Nil) {
+			monitoring.RecordCacheMiss()
+		}
 		return nil, err
 	}
 	// cache hit
+	monitoring.RecordCacheHit()
+
 	var order model.Order
 	err = json.Unmarshal(val, &order)
 	if err != nil {

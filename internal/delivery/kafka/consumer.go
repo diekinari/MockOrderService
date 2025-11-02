@@ -5,6 +5,7 @@ package kafka
 
 import (
 	"MockOrderService/internal/domain/model"
+	"MockOrderService/internal/monitoring"
 	"MockOrderService/internal/service"
 	"MockOrderService/internal/validation"
 	"context"
@@ -18,6 +19,7 @@ import (
 type consumerClient interface {
 	ReadMessage(ctx context.Context) (kafka.Message, error)
 	CommitMessages(ctx context.Context, messages ...kafka.Message) error
+	Topic() string
 }
 
 // Consumer represents a Kafka consumer
@@ -45,6 +47,8 @@ func (c *Consumer) Start(ctx context.Context, stop context.CancelFunc) {
 			if err != nil {
 				c.errorsCount++
 				c.sugar.Errorw("failed to read message", "error", err)
+				// Записываем метрику с success=false при ошибке чтения
+				monitoring.RecordKafkaMessagesConsumed(c.client.Topic(), false)
 				if c.errorsCount > 3 {
 					c.sugar.Fatal("consumer has reached maximum amount of errors, stopping the service")
 					stop()
@@ -52,8 +56,12 @@ func (c *Consumer) Start(ctx context.Context, stop context.CancelFunc) {
 				}
 				continue
 			}
+			// Kafka работает нормально - сообщение прочитано успешно (техническая успешность)
+			// success = true означает, что Kafka работает, а не то, что обработка удалась
+			monitoring.RecordKafkaMessagesConsumed(c.client.Topic(), true)
 			if err := c.processMessage(ctx, msg); err != nil {
 				c.sugar.Errorw("failed to process message", "error", err)
+				// Бизнес-ошибки отслеживаются через business_metrics.go (orders_failed_total)
 			}
 
 		}
