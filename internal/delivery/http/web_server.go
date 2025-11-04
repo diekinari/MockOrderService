@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus/promhttp"
+	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 	"go.uber.org/zap"
 )
 
@@ -33,11 +34,14 @@ func (ws *WebServer) StartWebServer(sugar *zap.SugaredLogger) error {
 	})
 	mux.Handle("/metrics", promhttp.HandlerFor(monitoring.Registry, promhttp.HandlerOpts{}))
 
-	wrappedHandler := Metrics(mux)
+	tracedHandler := otelhttp.NewHandler(
+		Metrics(mux), // Метрики middleware выполняется внутри трейсинга
+		"mock-order-service-web",
+	)
 
 	srv := &http.Server{
 		Addr:    ":8082",
-		Handler: wrappedHandler,
+		Handler: tracedHandler,
 	}
 	ws.server = srv
 	sugar.Infow("started client server at :8082")

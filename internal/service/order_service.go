@@ -9,6 +9,8 @@ import (
 	"fmt"
 	"time"
 
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
 	"go.uber.org/zap"
 )
 
@@ -76,31 +78,51 @@ func (s *OrderService) HeatUpCache(ctx context.Context) {
 // So error is returned in case of failure to save the order to db.
 // But there is no returning error in case of failure to save the order to cache.
 func (s *OrderService) ProcessOrder(ctx context.Context, order *model.Order) error {
+	// Создаем span для обработки заказа
+	ctx, span := monitoring.Tracer.Start(ctx, "service.ProcessOrder")
+	defer span.End()
+
 	start := time.Now()
+
+	// Добавляем атрибуты к span
+	span.SetAttributes(
+		attribute.String("order.uid", order.OrderUID),
+		attribute.String("order.track_number", order.TrackNumber),
+	)
 
 	defer func() {
 		duration := time.Since(start)
+		span.SetAttributes(attribute.Int64("order.process_duration_ms", duration.Milliseconds()))
 		monitoring.RecordOrderProcessDuration(duration)
 	}()
 
 	err := s.orderRepo.SaveOrder(ctx, order)
 	if err != nil {
 		// Ошибка сохранения в БД - заказ не обработан
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "failed to save order to database")
+		span.SetAttributes(attribute.Bool("order.db_saved", false))
 		monitoring.RecordOrderFailed()
 		return fmt.Errorf("failed to save message to db – orderUID: %v – err: %w", order.OrderUID, err)
 	}
+	span.SetAttributes(attribute.Bool("order.db_saved", true))
 	s.sugar.Infow("order was saved to db", "orderUID", order.OrderUID)
 
 	err = s.cacheRepo.SaveOrder(ctx, order)
 	if err != nil {
+		span.RecordError(err)
+		span.SetAttributes(attribute.Bool("order.cache_saved", false))
 		s.sugar.Errorw("failed to cache order", "orderUID", order.OrderUID, "error", err)
 		// Ошибка кэша не критична - заказ сохранен в БД, считаем успешной обработкой
+		span.SetStatus(codes.Ok, "order saved to DB, cache failed (non-critical)")
 		monitoring.RecordOrderCreated()
 		return nil
 	}
+	span.SetAttributes(attribute.Bool("order.cache_saved", true))
 	s.sugar.Infow("order was cached", "orderUID", order.OrderUID)
 
 	// Успешная обработка - заказ сохранен в БД и кэш
+	span.SetStatus(codes.Ok, "order processed successfully")
 	monitoring.RecordOrderCreated()
 	return nil
 }

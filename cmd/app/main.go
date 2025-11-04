@@ -77,6 +77,22 @@ func main() {
 	go kafkaConsumer.Start(ctx, stop)
 
 	monitoring.Init()
+
+	// Инициализируем трейсинг
+	if err := monitoring.InitTracing("mock-order-service", cfg.JaegerEndpoint, ctx); err != nil {
+		sugar.Errorw("failed to initialize tracing", "error", err)
+		// Не останавливаем приложение, если трейсинг не инициализировался
+		// Это позволяет работать без Jaeger (для dev окружения)
+	} else {
+		sugar.Infow("tracing initialized", "jaeger_endpoint", cfg.JaegerEndpoint)
+		// Корректно завершаем трейсинг при завершении приложения
+		defer func() {
+			if err := monitoring.ShutdownTracing(ctx); err != nil {
+				sugar.Errorw("failed to shutdown tracing", "error", err)
+			}
+		}()
+	}
+
 	healthChecker := monitoring.NewHealthChecker(pgClient, redisClient, 10*time.Second, sugar, stop)
 	go healthChecker.Start(ctx)
 

@@ -21,6 +21,8 @@ type Config struct {
 
 	RedisHost     string
 	RedisPassword string
+
+	JaegerEndpoint string
 }
 
 func Load() (*Config, error) {
@@ -74,18 +76,25 @@ func Load() (*Config, error) {
 		return nil, err
 	}
 
+	// Jaeger endpoint опциональный, если не указан - используем дефолтный
+	jaegerEndpoint := os.Getenv("JAEGER_ENDPOINT")
+	if jaegerEndpoint == "" {
+		jaegerEndpoint = "localhost:4318" // дефолтный OTLP HTTP endpoint для Jaeger
+	}
+
 	config := &Config{
-		DBHost:        dbHost,
-		DBPort:        dbPort,
-		DBUser:        dbUser,
-		DBPassword:    dbPass,
-		DBName:        dbName,
-		DBSSLMode:     dbSSLMode,
-		KafkaBroker:   kafkaBroker,
-		KafkaTopic:    kafkaTopic,
-		KafkaGroupId:  kafkaGroupId,
-		RedisHost:     redisHost,
-		RedisPassword: redisPass,
+		DBHost:         dbHost,
+		DBPort:         dbPort,
+		DBUser:         dbUser,
+		DBPassword:     dbPass,
+		DBName:         dbName,
+		DBSSLMode:      dbSSLMode,
+		KafkaBroker:    kafkaBroker,
+		KafkaTopic:     kafkaTopic,
+		KafkaGroupId:   kafkaGroupId,
+		RedisHost:      redisHost,
+		RedisPassword:  redisPass,
+		JaegerEndpoint: jaegerEndpoint,
 	}
 
 	return config, nil

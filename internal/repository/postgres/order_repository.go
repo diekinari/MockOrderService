@@ -10,6 +10,8 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
 )
 
 type OrderRepository struct {
@@ -22,9 +24,14 @@ func NewOrderRepository(pool *pgxpool.Pool) *OrderRepository {
 
 // SaveOrder saves an order to the database
 func (r *OrderRepository) SaveOrder(ctx context.Context, order *model.Order) (err error) {
+	// Создаем span для операции сохранения заказа в БД
+	ctx, span := monitoring.Tracer.Start(ctx, "postgres.SaveOrder")
+	defer span.End()
 	start := time.Now()
 	tx, err := r.pool.Begin(ctx)
 	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "failed to begin transaction")
 		return err
 	}
 
@@ -32,16 +39,29 @@ func (r *OrderRepository) SaveOrder(ctx context.Context, order *model.Order) (er
 		duration := time.Since(start)
 		success := err == nil
 
+		// Добавляем атрибуты к span
+		span.SetAttributes(
+			attribute.String("db.operation", "insert"),
+			attribute.String("db.table", "orders"),
+			attribute.String("db.order_uid", order.OrderUID),
+			attribute.Bool("db.success", success),
+			attribute.Int64("db.duration_ms", duration.Milliseconds()),
+		)
+
 		// Записываем метрику длительности запроса
 		monitoring.RecordDBQueryDuration("insert", "orders", success, duration)
 
 		// если основная функция возвращает ошибку – попытка откатить
 		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, err.Error())
 			rbErr := tx.Rollback(ctx)
 			// если случается реальная ошибка отката – возвращаем её вместе с основной ошибкой
 			if rbErr != nil && !errors.Is(err, sql.ErrTxDone) {
 				err = fmt.Errorf("%w; rollback error %w", err, rbErr)
 			}
+		} else {
+			span.SetStatus(codes.Ok, "order saved successfully")
 		}
 	}()
 
@@ -100,9 +120,15 @@ ON CONFLICT (order_uid, rid) DO NOTHING
 
 // GetOrderByOrderUID returns an order by orderUID from the database
 func (r *OrderRepository) GetOrderByOrderUID(ctx context.Context, orderUID string) (mdl *model.Order, err error) {
+	// Создаем span для операции получения заказа из БД
+	ctx, span := monitoring.Tracer.Start(ctx, "postgres.GetOrderByOrderUID")
+	defer span.End()
+
 	start := time.Now()
 	tx, err := r.pool.Begin(ctx)
 	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "failed to begin transaction")
 		return nil, err
 	}
 
@@ -110,16 +136,29 @@ func (r *OrderRepository) GetOrderByOrderUID(ctx context.Context, orderUID strin
 		duration := time.Since(start)
 		success := err == nil
 
+		// Добавляем атрибуты к span
+		span.SetAttributes(
+			attribute.String("db.operation", "select"),
+			attribute.String("db.table", "orders"),
+			attribute.String("db.order_uid", orderUID),
+			attribute.Bool("db.success", success),
+			attribute.Int64("db.duration_ms", duration.Milliseconds()),
+		)
+
 		// Записываем метрику длительности запроса
 		monitoring.RecordDBQueryDuration("select", "orders", success, duration)
 
 		// если основная функция возвращает ошибку – попытка откатить
 		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, err.Error())
 			rbErr := tx.Rollback(ctx)
 			// если случается реальная ошибка отката – возвращаем её вместе с основной ошибкой
 			if rbErr != nil && !errors.Is(err, sql.ErrTxDone) {
 				err = fmt.Errorf("%w; rollback error %w", err, rbErr)
 			}
+		} else {
+			span.SetStatus(codes.Ok, "order retrieved successfully")
 		}
 	}()
 

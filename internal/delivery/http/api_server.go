@@ -11,6 +11,7 @@ import (
 	"github.com/gorilla/mux"
 	"github.com/jackc/pgx/v5"
 	"github.com/redis/go-redis/v9"
+	"go.opentelemetry.io/contrib/instrumentation/github.com/gorilla/mux/otelmux"
 	"go.uber.org/zap"
 )
 
@@ -50,6 +51,8 @@ func NewApiServer(sugar *zap.SugaredLogger, ctx context.Context, orderRepo Order
 func (as *ApiServer) StartApiServer() error {
 	r := mux.NewRouter()
 
+	// Трейсинг middleware должен быть первым, чтобы захватывать все запросы
+	r.Use(otelmux.Middleware("mock-order-service"))
 	r.Use(Metrics)
 
 	r.HandleFunc("/api/order/{orderUID}", as.handleOrder)

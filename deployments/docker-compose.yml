@@ -114,6 +114,32 @@ services:
     depends_on:
       - prometheus
 
+  jaeger:
+    image: jaegertracing/all-in-one:latest
+    container_name: jaeger
+    restart: unless-stopped
+    environment:
+      # Используем in-memory storage для dev окружения
+      - SPAN_STORAGE_TYPE=memory
+      # Коллектор принимает трейсы через OTLP HTTP
+      - COLLECTOR_OTLP_ENABLED=true
+    ports:
+      # Jaeger UI
+      - "16686:16686"
+      # OTLP HTTP endpoint (для отправки трейсов)
+      - "4318:4318"
+      # OTLP gRPC endpoint (альтернативный способ)
+      - "4317:4317"
+      # Jaeger agent (для совместимости со старыми клиентами)
+      - "6831:6831/udp"
+      - "6832:6832/udp"
+      - "14268:14268"
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:16686/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
 volumes:
   kafka-data:
   redis-data:
