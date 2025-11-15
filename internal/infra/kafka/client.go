@@ -15,6 +15,7 @@ import (
 type Client struct {
 	reader *kafka.Reader
 	writer *kafka.Writer
+	dlqWriter *kafka.Writer
 }
 
 func NewClient(broker string, groupID string, topic string) (*Client, error) {
@@ -23,6 +24,10 @@ func NewClient(broker string, groupID string, topic string) (*Client, error) {
 
 	if err := CreateTopicIfNotExists(ctx, broker, topic, 3, 1); err != nil {
 		return nil, fmt.Errorf("ensure topic: %w", err)
+	}
+
+	if err := CreateTopicIfNotExists(ctx, broker, topic + "-dlq", 3, 1); err != nil {
+		return nil, fmt.Errorf("ensure dlq topic: %w", err)
 	}
 
 	return &Client{
@@ -35,6 +40,11 @@ func NewClient(broker string, groupID string, topic string) (*Client, error) {
 		writer: &kafka.Writer{
 			Addr:     kafka.TCP(broker),
 			Topic:    topic,
+			Balancer: &kafka.LeastBytes{},
+		},
+		dlqWriter: &kafka.Writer{
+			Addr:     kafka.TCP(broker),
+			Topic:    topic + "-dlq",
 			Balancer: &kafka.LeastBytes{},
 		},
 	}, nil
@@ -55,6 +65,20 @@ func (c *Client) WriteMessages(ctx context.Context, messages ...kafka.Message) e
 	return c.writer.WriteMessages(ctx, messages...)
 }
 
+// WriteMessagesToDLQ writes messages to the DLQ topic
+func (c *Client) WriteMessagesToDLQ(ctx context.Context,  errorInfo string, topic string, retryCount int, messages ...kafka.Message) error {
+	for _, message := range messages {
+		message.Headers = append(message.Headers, kafka.Header{Key: "x-error", Value: []byte(errorInfo)})
+		message.Headers = append(message.Headers, kafka.Header{Key: "x-timestamp", Value: []byte(time.Now().Format(time.RFC3339))})
+		message.Headers = append(message.Headers, kafka.Header{Key: "x-original-topic", Value: []byte(topic)})
+		message.Headers = append(message.Headers, kafka.Header{Key: "x-original-partition", Value: []byte(strconv.Itoa(message.Partition))})
+		message.Headers = append(message.Headers, kafka.Header{Key: "x-original-offset", Value: []byte(strconv.FormatInt(message.Offset, 10))})
+		message.Headers = append(message.Headers, kafka.Header{Key: "x-original-key", Value: message.Key})
+		message.Headers = append(message.Headers, kafka.Header{Key: "x-retry-count", Value: []byte(strconv.Itoa(retryCount))})
+	}
+	return c.dlqWriter.WriteMessages(ctx, messages...)
+}
+
 // Topic returns the topic name
 func (c *Client) Topic() string {
 	return c.writer.Topic
@@ -64,7 +88,8 @@ func (c *Client) Topic() string {
 func (c *Client) Close() error {
 	rError := fmt.Errorf("reader: %w", c.reader.Close())
 	wError := fmt.Errorf("writer: %w", c.writer.Close())
-	return errors.Join(rError, wError)
+	dError := fmt.Errorf("dlq writer: %w", c.dlqWriter.Close())
+	return errors.Join(rError, wError, dError)
 }
 
 // CreateTopicIfNotExists creates a topic.

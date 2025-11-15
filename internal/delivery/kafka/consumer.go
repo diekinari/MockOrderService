@@ -10,7 +10,9 @@ import (
 	"MockOrderService/internal/validation"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"time"
 
 	"github.com/segmentio/kafka-go"
 	"go.opentelemetry.io/otel/attribute"
@@ -23,19 +25,22 @@ type consumerClient interface {
 	ReadMessage(ctx context.Context) (kafka.Message, error)
 	CommitMessages(ctx context.Context, messages ...kafka.Message) error
 	Topic() string
+	WriteMessagesToDLQ(ctx context.Context, errorInfo string, topic string, retryCount int, messages ...kafka.Message) error
 }
 
 // Consumer represents a Kafka consumer
 type Consumer struct {
-	client      consumerClient
-	service     *service.OrderService
-	sugar       *zap.SugaredLogger
-	errorsCount int
+	client            consumerClient
+	service           *service.OrderService
+	sugar             *zap.SugaredLogger
+	errorsCount       int
+	maxRetriesDLQ     int
+	retryBackoffMsDLQ int
 }
 
 // NewConsumer creates a new Kafka consumer with the given client, service, and logger.
-func NewConsumer(client consumerClient, service *service.OrderService, sugar *zap.SugaredLogger) *Consumer {
-	return &Consumer{client: client, service: service, sugar: sugar}
+func NewConsumer(client consumerClient, service *service.OrderService, maxRetriesDLQ int, retryBackoffMsDLQ int, sugar *zap.SugaredLogger) *Consumer {
+	return &Consumer{client: client, service: service, maxRetriesDLQ: maxRetriesDLQ, retryBackoffMsDLQ: retryBackoffMsDLQ, sugar: sugar}
 }
 
 // Start functions starts a consumer. It reads the messages and process them accordingly with provided method.
@@ -90,6 +95,13 @@ func (c *Consumer) processMessage(ctx context.Context, msg kafka.Message) error 
 	if err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "failed to unmarshal order")
+
+		errDLQ := c.client.WriteMessagesToDLQ(ctx, "failed to unmarshal order", msg.Topic, 0, msg)
+		monitoring.RecordKafkaMessagesSentToDQL(msg.Topic, err.Error())
+		if errDLQ != nil {
+			span.RecordError(errDLQ)
+			return errors.Join(err, errDLQ)
+		}
 		return fmt.Errorf("failed to unmarshal order: %w", err)
 	}
 
@@ -114,17 +126,44 @@ func (c *Consumer) processMessage(ctx context.Context, msg kafka.Message) error 
 	span.SetAttributes(attribute.Bool("validation.valid", true))
 	c.sugar.Infow("order is validated", "orderUID", order.OrderUID)
 
-	if err := c.service.ProcessOrder(ctx, &order); err != nil {
-		span.RecordError(err)
-		span.SetStatus(codes.Error, "failed to process order")
-		return err
+	for i := 0; i < c.maxRetriesDLQ; i++ {
+		if err := c.service.ProcessOrder(ctx, &order); err != nil {
+			monitoring.RecordKafkaRetries(msg.Topic, i)
+			if i == c.maxRetriesDLQ-1 {
+				span.RecordError(err)
+				span.SetStatus(codes.Error, "failed to process order")
+				errDLQ := c.client.WriteMessagesToDLQ(ctx, "failed to process order", msg.Topic, i+1, msg)
+				monitoring.RecordKafkaMessagesSentToDQL(msg.Topic, err.Error())
+				if errDLQ != nil {
+					span.RecordError(errDLQ)
+					return errors.Join(err, errDLQ)
+				}
+				return err
+			}
+			time.Sleep(time.Duration(c.retryBackoffMsDLQ) * time.Millisecond)
+			continue
+		}
+		break
 	}
 
-	err = c.client.CommitMessages(ctx, msg)
-	if err != nil {
-		span.RecordError(err)
-		span.SetStatus(codes.Error, "failed to commit message")
-		return fmt.Errorf("failed to commit message: %w", err)
+	for i := 0; i < c.maxRetriesDLQ; i++ {
+		if err := c.client.CommitMessages(ctx, msg); err != nil {
+			monitoring.RecordKafkaRetries(msg.Topic, i)
+			if i == c.maxRetriesDLQ-1 {
+				span.RecordError(err)
+				span.SetStatus(codes.Error, "failed to commit message")
+				errDLQ := c.client.WriteMessagesToDLQ(ctx, "failed to commit message", msg.Topic, i+1, msg)
+				monitoring.RecordKafkaMessagesSentToDQL(msg.Topic, err.Error())
+				if errDLQ != nil {
+					span.RecordError(errDLQ)
+					return errors.Join(err, errDLQ)
+				}
+				return err
+			}
+			time.Sleep(time.Duration(c.retryBackoffMsDLQ) * time.Millisecond)
+			continue
+		}
+		break
 	}
 	span.SetStatus(codes.Ok, "order processed and committed successfully")
 	c.sugar.Infow("order was committed", "orderUID", order.OrderUID)

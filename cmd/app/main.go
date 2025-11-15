@@ -73,7 +73,7 @@ func main() {
 	kafkaProducer := kafka.NewProducer(kafkaClient, sugar)
 	go kafkaProducer.Start(stop)
 
-	kafkaConsumer := kafka.NewConsumer(kafkaClient, orderService, sugar)
+	kafkaConsumer := kafka.NewConsumer(kafkaClient, orderService, cfg.MaxRetries, cfg.RetryBackoffMs, sugar)
 	go kafkaConsumer.Start(ctx, stop)
 
 	monitoring.Init()

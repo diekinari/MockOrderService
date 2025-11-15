@@ -3,6 +3,7 @@ package config
 import (
 	"errors"
 	"os"
+	"strconv"
 
 	"github.com/joho/godotenv"
 )
@@ -15,9 +16,11 @@ type Config struct {
 	DBName     string
 	DBSSLMode  string
 
-	KafkaBroker  string
-	KafkaTopic   string
-	KafkaGroupId string
+	KafkaBroker    string
+	KafkaTopic     string
+	KafkaGroupId   string
+	MaxRetries     int
+	RetryBackoffMs int
 
 	RedisHost     string
 	RedisPassword string
@@ -67,6 +70,28 @@ func Load() (*Config, error) {
 	if err != nil {
 		return nil, err
 	}
+	maxRetriesStr := os.Getenv("MAX_RETRIES")
+	if maxRetriesStr == "" {
+		maxRetriesStr = "3"
+	}
+	maxRetries, err := strconv.Atoi(maxRetriesStr)
+	if err != nil {
+		return nil, err
+	}
+	if maxRetries <= 0 {
+		maxRetries = 3
+	}
+	retryBackoffMsStr := os.Getenv("RETRY_BACKOFF_MS")
+	if retryBackoffMsStr == "" {
+		retryBackoffMsStr = "1000"
+	}
+	retryBackoffMs, err := strconv.Atoi(retryBackoffMsStr)
+	if err != nil {
+		return nil, err
+	}
+	if retryBackoffMs <= 0 {
+		retryBackoffMs = 1000
+	}
 	redisHost, err := getEnv("REDIS_HOST")
 	if err != nil {
 		return nil, err
@@ -92,6 +117,8 @@ func Load() (*Config, error) {
 		KafkaBroker:    kafkaBroker,
 		KafkaTopic:     kafkaTopic,
 		KafkaGroupId:   kafkaGroupId,
+		MaxRetries:     maxRetries,
+		RetryBackoffMs: retryBackoffMs,
 		RedisHost:      redisHost,
 		RedisPassword:  redisPass,
 		JaegerEndpoint: jaegerEndpoint,
