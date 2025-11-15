@@ -12,8 +12,11 @@
 - **База данных**: PostgreSQL для хранения данных заказов
 - **Кэш**: Redis для быстрого доступа к данным
 - **Очередь сообщений**: Kafka для получения данных о заказах
+- **DLQ**: Dead Letter Queue для обработки проблемных сообщений
 - **API**: HTTP/JSON API для доступа к данным
 - **Веб-интерфейс**: Простой HTML/JS интерфейс для просмотра заказов
+- **Мониторинг**: Prometheus для метрик, Grafana для визуализации
+- **Трейсинг**: Jaeger для распределенной трассировки
 
 ## Функциональность
 
@@ -22,7 +25,11 @@
 - Кэширование заказов в Redis для быстрого доступа
 - HTTP API для получения информации о заказах по ID
 - Веб-интерфейс для просмотра заказов
+- **Retry механизм** с настраиваемым количеством попыток и задержкой
+- **Dead Letter Queue (DLQ)** для сообщений, которые не удалось обработать после исчерпания попыток
 - Мониторинг здоровья компонентов системы
+- Метрики Prometheus для бизнес-логики, Kafka, БД и кэша
+- Распределенная трассировка через OpenTelemetry и Jaeger
 - Graceful shutdown при получении сигналов завершения
 
 ## Быстрый старт
@@ -30,30 +37,107 @@
 ### Предварительные требования
 
 - Go 1.18+
-- PostgreSQL 13+
-- Redis 6+
-- Kafka 2.8+
-- Docker и Docker Compose (опционально)
+- Docker и Docker Compose (рекомендуется)
+
+### Запуск через Docker Compose
+
+1. **Запустите инфраструктуру** (PostgreSQL, Kafka, Redis, Prometheus, Grafana, Jaeger):
+
+```bash
+cd deployments
+docker-compose up -d
+```
+
+Это запустит все необходимые сервисы:
+- PostgreSQL на порту 5433
+- Kafka на порту 9092
+- Redis на порту 6379
+- Prometheus на порту 9090
+- Grafana на порту 3000 (логин/пароль: `admin/admin`)
+- Jaeger UI на порту 16686, OTLP endpoint на 4318
+
+2. **Создайте файл `.env`** в корне проекта (см. раздел "Переменные окружения")
+
+3. **Установите зависимости Go**:
+
+```bash
+go mod download
+```
+
+4. **Запустите приложение**:
+
+```bash
+go run cmd/app/main.go
+```
+
+Или соберите бинарник:
+
+```bash
+go build -o main cmd/app/main.go
+./main
+```
+
+### Полезные команды
+
+Остановить инфраструктуру:
+```bash
+cd deployments
+docker-compose down
+```
+
+Просмотр логов:
+```bash
+cd deployments
+docker-compose logs -f
+```
+
+Проверка статуса контейнеров:
+```bash
+cd deployments
+docker-compose ps
+```
+
+### Доступные сервисы
+
+После запуска доступны следующие интерфейсы:
+
+- **API сервер**: http://localhost:8081
+- **Веб-интерфейс**: http://localhost:8082
+- **Prometheus**: http://localhost:9090
+- **Grafana**: http://localhost:3000 (логин/пароль: `admin/admin`)
+- **Jaeger UI**: http://localhost:16686
 
 ### Переменные окружения
 
 Создайте файл `.env` в корне проекта со следующими переменными:
 
 ```env
-DB_HOST:localhost
-DB_PORT:5433
-DB_USER:app_user
-DB_PASSWORD:app_password
-DB_NAME:app_db
-DB_SSL_MODE:disable
+# Database
+DB_HOST=localhost
+DB_PORT=5433
+DB_USER=postgres
+DB_PASSWORD=postgres
+DB_NAME=postgres
+DB_SSL_MODE=disable
 
-KAFKA_BROKER:localhost:9092
-KAFKA_TOPIC:test-topic
-KAFKA_GROUP_ID:demo-group
+# Kafka
+KAFKA_BROKER=localhost:9092
+KAFKA_TOPIC=test-topic
+KAFKA_GROUP_ID=demo-group
 
-REDIS_HOST:127.0.0.1:6379
-REDIS_PASSWORD:my_very_secure_password
+# Redis
+REDIS_HOST=127.0.0.1:6379
+REDIS_PASSWORD=
+
+# Retry configuration (опционально, дефолты: MAX_RETRIES=3, RETRY_BACKOFF_MS=1000)
+MAX_RETRIES=3
+RETRY_BACKOFF_MS=1000
+
+# Jaeger (опционально, дефолт: localhost:4318)
+JAEGER_ENDPOINT=localhost:4318
 ```
+
+**Примечание**: DLQ топик создается автоматически как `{KAFKA_TOPIC}-dlq` (например, `test-topic-dlq`).
 
 ## API Endpoints
 
@@ -125,7 +209,57 @@ GET /order/{order_uid}
 3. Просмотреть детали заказа в удобном формате
 
 
+## Dead Letter Queue (DLQ)
+
+Сервис поддерживает механизм Dead Letter Queue для обработки сообщений, которые не удалось обработать после исчерпания попыток повтора.
+
+### Механизм работы
+
+1. **Retry механизм**: При ошибке обработки сообщение повторяется до `MAX_RETRIES` раз с задержкой `RETRY_BACKOFF_MS` миллисекунд между попытками.
+
+2. **Отправка в DLQ**: Если после всех попыток обработка не удалась, сообщение отправляется в DLQ топик `{KAFKA_TOPIC}-dlq`.
+
+3. **Метаданные в DLQ**: Каждое сообщение в DLQ содержит заголовки:
+   - `x-error` - описание ошибки
+   - `x-retry-count` - количество выполненных попыток
+   - `x-original-topic` - исходный топик
+   - `x-original-partition` - исходная партиция
+   - `x-original-offset` - исходный offset
+   - `x-original-key` - исходный ключ сообщения
+   - `x-timestamp` - время отправки в DLQ
+
+### Типы ошибок
+
+- **Unmarshal ошибки**: Отправляются в DLQ сразу (постоянная ошибка формата)
+- **Service ошибки**: Повторы → DLQ при исчерпании попыток
+- **Commit ошибки**: Повторы → DLQ при исчерпании попыток
+- **Validation ошибки**: Пропускаются (не отправляются в DLQ)
+
+## Мониторинг
+
+### Метрики Prometheus
+
+Сервис экспортирует следующие метрики:
+
+- `kafka_messages_produced_total` - количество отправленных сообщений в Kafka
+- `kafka_messages_consumed_total` - количество полученных сообщений из Kafka
+- `kafka_messages_sent_to_dql_total` - количество сообщений, отправленных в DLQ
+- `kafka_retries_total` - количество попыток повтора
+- `orders_created_total` - количество успешно созданных заказов
+- `orders_failed_total` - количество неудачных попыток обработки заказов
+- `order_process_duration_seconds` - время обработки заказа
+- Метрики БД и кэша
+
+Метрики доступны по адресу: http://localhost:8081/metrics
+
+### Grafana Dashboard
+
+В Grafana доступен готовый дашборд с визуализацией метрик сервиса. Дашборд автоматически подключается при запуске через docker-compose.
+
+### Трейсинг
+
+Сервис использует OpenTelemetry для распределенной трассировки. Трейсы отправляются в Jaeger и доступны через Jaeger UI.
+
 ## Логирование
 
-Приложение использует структурированное логирование с различными уровнями детализации (debug, info, warn, error). 
-
+Приложение использует структурированное логирование с различными уровнями детализации (debug, info, warn, error).
